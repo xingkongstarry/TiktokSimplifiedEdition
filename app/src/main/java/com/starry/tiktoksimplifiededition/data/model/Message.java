@@ -55,4 +55,9 @@ public class Message implements Serializable {
     public void setLatestTimestamp(long latestTimestamp) {
         this.latestTimestamp = latestTimestamp;
     }
+
+    public int compareTo(Message other) {
+        // 按照最新时间戳降序排列
+        return Long.compare(other.getLatestTimestamp(), this.getLatestTimestamp());
+    }
 }

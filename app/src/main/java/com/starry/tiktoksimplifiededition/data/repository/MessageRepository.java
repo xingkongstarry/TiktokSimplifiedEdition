@@ -4,11 +4,14 @@ import android.content.Context;
 import android.util.Log;
 
 import androidx.lifecycle.LiveData;
+import androidx.lifecycle.Transformations;
+
 import com.starry.tiktoksimplifiededition.data.db.AppDatabase;
 import com.starry.tiktoksimplifiededition.data.model.ChatMessage;
 import com.starry.tiktoksimplifiededition.data.model.Message;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class MessageRepository {
@@ -34,7 +37,16 @@ public class MessageRepository {
         }
     }
     public LiveData<List<Message>> getAllMessages() {
-        return db.messageDao().getAllMessages();
+        return Transformations.map(db.messageDao().getAllMessages(), messages -> {
+            if (messages != null) {
+                // 确保消息按时间倒序排列
+                List<Message> sortedMessages = new ArrayList<>(messages);
+                Collections.sort(sortedMessages, (m1, m2) ->
+                        Long.compare(m2.getLatestTimestamp(), m1.getLatestTimestamp()));
+                return sortedMessages;
+            }
+            return messages;
+        });
     }
 
     public void updateMessage(Message message) {
