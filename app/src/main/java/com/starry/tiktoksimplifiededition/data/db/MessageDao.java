@@ -25,4 +25,10 @@ public interface MessageDao {
 
     @Query("SELECT COUNT(*) FROM message_table")
     int getCount();
+
+    @Query("SELECT * FROM message_table WHERE userId = :userId LIMIT 1")
+    Message findByUserId(String userId);
+
+    @Query("SELECT * FROM message_table WHERE userId = :userId LIMIT 1")
+    LiveData<Message> getMessageLiveData(String userId);
 }

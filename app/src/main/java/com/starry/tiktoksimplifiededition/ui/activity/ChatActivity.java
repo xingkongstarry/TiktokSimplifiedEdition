@@ -1,11 +1,12 @@
-// ChatActivity.java
 package com.starry.tiktoksimplifiededition.ui.activity;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -23,8 +24,7 @@ public class ChatActivity extends AppCompatActivity {
     private Message message;
     private ChatAdapter adapter;
     private List<ChatMessage> chatMessages = new ArrayList<>();
-    private static final int REQUEST_CODE_REMARK = 1001;
-    private androidx.activity.result.ActivityResultLauncher<Intent> remarkActivityLauncher;
+    private RecyclerView rvMessages;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,141 +32,156 @@ public class ChatActivity extends AppCompatActivity {
         setContentView(R.layout.activity_chat);
 
         message = (Message) getIntent().getSerializableExtra("msg_data");
+        if (message == null) {
+            finish();
+            return;
+        }
 
-        // 初始化 RecyclerView
-        RecyclerView rvMessages = findViewById(R.id.rv_messages);
+        rvMessages = findViewById(R.id.rv_messages);
         adapter = new ChatAdapter();
         rvMessages.setLayoutManager(new LinearLayoutManager(this));
         rvMessages.setAdapter(adapter);
 
-        // 加载聊天记录：优先使用 message 对象中的记录
-        if (message != null && message.getChatHistory() != null && !message.getChatHistory().isEmpty()) {
+        if (message.getChatHistory() != null) {
             chatMessages.addAll(message.getChatHistory());
             adapter.setMessages(chatMessages);
-            rvMessages.scrollToPosition(chatMessages.size() - 1); // 滚动到底部
-        } else {
-            // 如果没有，则加载模拟数据
-            loadMockChatData();
+            if (!chatMessages.isEmpty()) {
+                rvMessages.scrollToPosition(chatMessages.size() - 1);
+            }
         }
 
-        // 设置标题栏信息
-        if (message != null) {
-            // 加载头像
-            Glide.with(this)
-                    .load(message.avatarUrl)
-                    .placeholder(R.drawable.ic_launcher_background)
-                    .transform(new CircleCrop())
-                    .into((ImageView)findViewById(R.id.iv_avatar));
 
-            // 设置名称
-            ((android.widget.TextView)findViewById(R.id.tv_name)).setText(message.getDisplayName());
-        }
+        AppDatabase.getDatabase(this).messageDao().getMessageLiveData(message.userId)
+                .observe(this, updatedMessage -> {
+                    if (updatedMessage != null && updatedMessage.getChatHistory() != null) {
+                        // 更新本地对象引用
+                        message = updatedMessage;
 
-        // 获取返回按钮并设置点击事件
-        ImageView ivBack = findViewById(R.id.iv_back);
-        ivBack.setOnClickListener(v -> finish()); // 返回上一个界面
+                        // 实时更新标题栏显示的昵称
+                        // 这样从备注页修改完回来，或者后台更新了信息，标题会自动变
+                        TextView tvName = findViewById(R.id.tv_name);
+                        if (tvName != null) {
+                            tvName.setText(updatedMessage.getDisplayName());
+                        }
 
-        // 注册 ActivityResultLauncher 替代 startActivityForResult
-        remarkActivityLauncher = registerForActivityResult(
-                new androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK) {
-                        Intent data = result.getData();
-                        if (data != null) {
-                            Message updatedMessage = (Message) data.getSerializableExtra("updated_msg_data");
-                            if (updatedMessage != null) {
-                                message = updatedMessage;
-                                ((android.widget.TextView)findViewById(R.id.tv_name)).setText(message.getDisplayName());
-                            }
+                        // 更新聊天列表 (只有当消息数量增加时才刷新，避免不必要的重绘)
+                        if (updatedMessage.getChatHistory().size() > chatMessages.size()) {
+                            chatMessages.clear();
+                            chatMessages.addAll(updatedMessage.getChatHistory());
+                            adapter.setMessages(chatMessages);
+                            // 滚动到底部，看到最新消息
+                            rvMessages.scrollToPosition(chatMessages.size() - 1);
                         }
                     }
-                }
-        );
+                });
 
-        // 获取菜单按钮并设置点击事件
+        setupViews();      // 设置头部视图和点击事件
+        setupSendButton(); // 设置发送按钮逻辑
+    }
+
+
+    // 专门处理"离开页面"的逻辑，静默清除未读数
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (message != null) {
+            new Thread(() -> {
+                AppDatabase db = AppDatabase.getDatabase(this);
+                // 必须查最新的，因为后台可能刚改了它
+                Message latestMsg = db.messageDao().findByUserId(message.userId);
+                // 如果有未读，将其清零并保存
+                if (latestMsg != null && latestMsg.unreadCount > 0) {
+                    latestMsg.unreadCount = 0;
+                    db.messageDao().update(latestMsg);
+                }
+            }).start();
+        }
+    }
+
+    /**
+     * 设置视图 (头部信息、返回按钮、菜单按钮)
+     */
+    private void setupViews() {
+        // 1. 系统通知特殊处理 (隐藏菜单、禁用输入)
+        if ("system_notification".equals(message.userId)) {
+            findViewById(R.id.iv_menu).setVisibility(View.GONE);
+            findViewById(R.id.et_message).setEnabled(false);
+            findViewById(R.id.btn_send).setEnabled(false);
+        }
+
+        // 2. 加载头像
+        Glide.with(this)
+                .load(message.avatarUrl)
+                .transform(new CircleCrop())
+                .into((ImageView)findViewById(R.id.iv_avatar));
+
+        // 3. 设置初始标题
+        ((TextView)findViewById(R.id.tv_name)).setText(message.getDisplayName());
+
+        // 4. 返回按钮事件
+        findViewById(R.id.iv_back).setOnClickListener(v -> finish());
+
+        // 5. 【修复】菜单按钮事件 -> 跳转备注页
         ImageView ivMenu = findViewById(R.id.iv_menu);
         ivMenu.setOnClickListener(v -> {
             Intent intent = new Intent(ChatActivity.this, RemarkActivity.class);
             intent.putExtra("msg_data", message);
-            remarkActivityLauncher.launch(intent); // 使用新的 launcher 启动
+            // 直接跳转，修改完数据库后，LiveData 会自动刷新界面，不需要 setResult
+            startActivity(intent);
         });
+    }
 
-        // 发送消息按钮
+    /**
+     * 发送按钮的点击事件处理
+     */
+    private void setupSendButton() {
         ImageButton btnSend = findViewById(R.id.btn_send);
         EditText etMessage = findViewById(R.id.et_message);
+
         btnSend.setOnClickListener(v -> {
             String content = etMessage.getText().toString().trim();
             if (!content.isEmpty()) {
                 ChatMessage sentMsg = new ChatMessage(content, ChatMessage.TYPE_SENT, System.currentTimeMillis());
+
+                // 为了极速响应，先在本地列表添加并刷新 (双重保险)
                 chatMessages.add(sentMsg);
                 adapter.notifyItemInserted(chatMessages.size() - 1);
                 rvMessages.scrollToPosition(chatMessages.size() - 1);
                 etMessage.setText("");
 
-                // 更新数据库中的消息记录
+                // 异步写入数据库 (写入后 LiveData 也会触发一次刷新，保证一致性)
                 updateMessageInDatabase(sentMsg);
 
-                // 模拟回复
+                // 触发模拟回复
                 simulateReply();
             }
         });
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_REMARK && resultCode == RESULT_OK) {
-            // 接收更新后的message对象
-            Message updatedMessage = (Message) data.getSerializableExtra("updated_msg_data");
-            if (updatedMessage != null) {
-                message = updatedMessage;
-                // 更新界面显示的名称
-                ((android.widget.TextView)findViewById(R.id.tv_name)).setText(message.getDisplayName());
-            }
-        }
-    }
-    private void loadMockChatData() {
-        // 添加一些初始的聊天记录
-        chatMessages.add(new ChatMessage("你好！", ChatMessage.TYPE_RECEIVED, System.currentTimeMillis() - 30000));
-        chatMessages.add(new ChatMessage("你好，有什么可以帮助你的吗？", ChatMessage.TYPE_SENT, System.currentTimeMillis() - 25000));
-        chatMessages.add(new ChatMessage("我想了解一下你们的产品。", ChatMessage.TYPE_RECEIVED, System.currentTimeMillis() - 20000));
-        chatMessages.add(new ChatMessage("当然可以，请问您具体想了解哪方面呢？", ChatMessage.TYPE_SENT, System.currentTimeMillis() - 15000));
-
-        adapter.setMessages(chatMessages);
-        RecyclerView rvMessages = findViewById(R.id.rv_messages);
-        rvMessages.scrollToPosition(chatMessages.size() - 1); // 滚动到底部
-    }
-
+    /**
+     * 更新数据库中的消息记录
+     */
     private void updateMessageInDatabase(ChatMessage newChatMessage) {
         new Thread(() -> {
-            // 更新Message对象的chatHistory
-            if (message.getChatHistory() == null) {
-                message.setChatHistory(new ArrayList<>());
-            }
+            // 注意：这里我们只负责更新内容，unreadCount 的清零交给 onStop
+            if (message.getChatHistory() == null) message.setChatHistory(new ArrayList<>());
             message.getChatHistory().add(newChatMessage);
-
-            // 更新最新消息内容和时间
             message.setLatestContent(newChatMessage.getContent());
             message.setLatestTimestamp(newChatMessage.getTimestamp());
-
-            // 更新数据库
             AppDatabase.getDatabase(this).messageDao().update(message);
         }).start();
     }
 
+    /**
+     * 模拟回复逻辑
+     */
     private void simulateReply() {
         if (message != null && "抖音小助手".equals(message.originalName)) {
-            // 模拟延迟后自动回复
             new android.os.Handler().postDelayed(() -> {
-                RecyclerView rvMessages = findViewById(R.id.rv_messages);
-                ChatMessage replyMsg = new ChatMessage("[自动回复] 您好，已收到您的消息，我们会尽快回复您。", ChatMessage.TYPE_RECEIVED, System.currentTimeMillis());
-                chatMessages.add(replyMsg);
-                adapter.notifyItemInserted(chatMessages.size() - 1);
-                rvMessages.scrollToPosition(chatMessages.size() - 1);
-
-                // 更新数据库中的消息记录
+                ChatMessage replyMsg = new ChatMessage("[自动回复] 收到您的反馈，我们会尽快处理。", ChatMessage.TYPE_RECEIVED, System.currentTimeMillis());
+                // 本地模拟回复直接写库，LiveData 会自动刷新界面显示回复
                 updateMessageInDatabase(replyMsg);
-            }, 1000); // 1秒后回复
+            }, 1000);
         }
     }
 }

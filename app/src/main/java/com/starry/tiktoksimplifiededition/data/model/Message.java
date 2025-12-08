@@ -11,6 +11,8 @@ public class Message implements Serializable {
     @PrimaryKey(autoGenerate = true)
     public long id;
 
+    public boolean isPinned;
+
     // 添加最新消息内容字段，用于在主页面显示
     public String latestContent;
     public long latestTimestamp;
@@ -57,7 +59,10 @@ public class Message implements Serializable {
     }
 
     public int compareTo(Message other) {
-        // 按照最新时间戳降序排列
+        if (this.isPinned != other.isPinned) {
+            // true (置顶) 排在 false (未置顶) 前面
+            return this.isPinned ? -1 : 1;
+        }
         return Long.compare(other.getLatestTimestamp(), this.getLatestTimestamp());
     }
 }

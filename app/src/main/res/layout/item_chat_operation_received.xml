@@ -4,27 +4,40 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:padding="8dp"
-    android:gravity="end">
+    android:gravity="start">
 
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="#448AFF"
+        android:background="@drawable/chat_bubble_received"
         android:orientation="vertical"
-        android:padding="10dp">
+        android:padding="12dp">
+
         <TextView
             android:id="@+id/tv_content"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#000000"
-            android:textSize="16sp"/>
+            android:textSize="16sp"
+            android:text="恭喜获得奖励"/>
+
+        <Button
+            android:id="@+id/btn_chat_action"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginTop="8dp"
+            android:text="立即领取"
+            android:textSize="12sp"
+            android:backgroundTint="#FF0000"
+            android:textColor="#FFFFFF"/>
+
         <TextView
             android:id="@+id/tv_time"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#999999"
-            android:textSize="12sp"
+            android:textSize="10sp"
+            android:layout_marginTop="4dp"
             android:layout_gravity="end"/>
     </LinearLayout>
-
 </LinearLayout>
